@@ -795,6 +795,15 @@ seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_singlets)   ## joi
 ############# Jerby32-10X ###########
 
 
+rm(list = ls())
+
+library(Seurat)
+library(stringr)
+library(Matrix)
+library(ggplot2)
+library(DoubletFinder)
+library(glmGamPoi)
+
 #load expression matrix (Jerby papper)
 tumor_counts_10X <- read.csv(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/Jerby/GSM3770932/GSM3770932_SyS.tumors10x_counts.csv.gz", row.names = 1, header = T)
 
@@ -857,7 +866,7 @@ for(i in 1:length(SS_tumor_split_10X)){
     meta10X <- meta10X[, c("orig.ident","nCount_RNA","nFeature_RNA","percent.mt","Sample_ID","Patient_ID","Dataset","Library_type","Sex" ,"Age", "Tumour_type", "genetic" ,"Tumor_site", "Tumour_location" ,"Treatment_timepoint" ,"Tumour_treatment" ,"Tumour_grade")]
 
 # Assign the updated metadata back to the Seurat object
-     SS_tumor_split_10X[[i]]@meta.data <- metadata
+     SS_tumor_split_10X[[i]]@meta.data <- meta10X
 
 
 
@@ -865,12 +874,18 @@ for(i in 1:length(SS_tumor_split_10X)){
 
 
 seurat_obj_study_SS10X  <- merge(x= SS_tumor_split_10X[[1]], y= SS_tumor_split_10X[2:length( SS_tumor_split_10X)])
-#seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_SS)   ## join layers
+#seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_SS10X )   ## join layers
+
+### exclude met sample 
+
+seurat_obj_study_SS10X_primary<-subset(seurat_obj_study_SS10X, subset = Sample_ID != "SyS13_10x Met pt")
 
 
-png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_scatter_basic_qc.png", width=8, height=10, res=200, units='in')
+
+
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby32_10X_Synovial_primary_scatter_basic_qc.png", width=8, height=10, res=200, units='in')
 FeatureScatter(
-    seurat_obj_study_SS, 
+    seurat_obj_study_SS10X_primary , 
     feature1 = "nCount_RNA",
     feature2="nFeature_RNA",
     group.by="Sample_ID")
@@ -880,9 +895,9 @@ dev.off()
 
 
 # plot distributions of QC metrics, grouped by SampleID
-png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_basic_qc.png", width=6, height=10, res=200, units='in')
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby32_10X_Synovial_primary_Synovial_basic_qc.png", width=6, height=10, res=200, units='in')
 VlnPlot(
-    seurat_obj_study_SS,
+    seurat_obj_study_SS10X_primary,
     features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
     group.by="Sample_ID",
     pt.size=0,
@@ -892,7 +907,7 @@ dev.off()
 
 
 # plot the number of cells in each sample post filtering
-df_cell_number <- as.data.frame(rev(table(seurat_obj_study_SS$Sample_ID)))
+df_cell_number <- as.data.frame(rev(table(seurat_obj_study_SS10X_primary$Sample_ID)))
 colnames(df_cell_number) <- c('Sample_ID', 'n_cells')
 p <- ggplot(df_cell_number, aes(y=n_cells, x=reorder(Sample_ID, -n_cells), fill=Sample_ID)) +
     geom_bar(stat='identity') + 
@@ -905,15 +920,167 @@ p <- ggplot(df_cell_number, aes(y=n_cells, x=reorder(Sample_ID, -n_cells), fill=
     #panel.grid.major.y=linewidth(colour="lightgray", size=0.5),
 )
 
-png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_basic_cells_per_sample_filtered.png",width=7, height=3, res=200, units='in')
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby32_10X_Synovial_primary_basic_cells_per_sample_filtered.png",width=7, height=3, res=200, units='in')
 print(p)
 dev.off()
 
 
 
-saveRDS(seurat_obj_study_SS , file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Synovial31_Jerby_seurat_object.rds")
+saveRDS(seurat_obj_study_SS10X_primary , file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Synovial32_10X_Jerby_seurat_object.rds")
 SS_singlets_joined<-JoinLayers(seurat_obj_study_SS)   ## join layers
 
+
+
+###########################################
+#### find and remove doublets (Jerby 10X)######
+####################################
+
+## NOTE: DoubletFinder should not be run on aggregated data and should be run on a per sample basis
+
+table(SS_singlets_joined$Sample_ID)ßß
+
+#doubletpercent = 0.075
+#doubletpc = seq(30)
+#doubletresolution = 1
+
+tumor_joined_split <- SplitObject(SS_singlets_joined, split.by = "Sample_ID") 
+
+
+# loop through samples to find doublets
+for (i in 1:length(tumor_joined_split)) {   ### loop through easch sample in the seurat object
+  # print the sample we are on
+  #print(paste0("Sample_ID ",i))
+  
+     # Pre-process seurat object with standard seurat workflow
+     tumor_sample <- NormalizeData(tumor_joined_split[[i]],
+     normalization.method = "LogNormalize",   ### lognormalize is a simpler method
+     scale.factor = 10000
+     )
+
+
+     #### Alternative *normalization method* with more power :scTransform (it does normalization, scaling and finding variable feature in one step)
+     #sc_tumor <- scTransform(
+      #    sc_tumor,
+      #    vars.to.regress="percent.mt",
+      #    variable.features.n = 3000
+      #)    ### The normalized data are under $SCT in the assay slot
+
+
+     tumor_sample <- FindVariableFeatures(tumor_sample,
+     selection.method = "vst",
+     nfeatures = 2000)
+     tumor_sample <- ScaleData(tumor_sample)
+     tumor_sample <- RunPCA(tumor_sample)
+
+
+     # Find significant PCs
+     stdv <- tumor_sample[["pca"]]@stdev
+     sum.stdv <- sum(tumor_sample[["pca"]]@stdev)
+     percent.stdv <- (stdv / sum.stdv) * 100
+     cumulative <- cumsum(percent.stdv)
+     co1 <- which(cumulative > 90 & percent.stdv < 5)[1]
+     co2 <- sort(which((percent.stdv[1:length(percent.stdv) - 1] - 
+                       percent.stdv[2:length(percent.stdv)]) > 0.1), 
+              decreasing = T)[1] + 1
+     min.pc <- min(co1, co2)
+     min.pc
+
+
+     # finish pre-processing
+     tumor_sample <- RunUMAP(tumor_sample, dims = 1:min.pc)    ### alternative: dims = doubletpc
+     tumor_sample <- FindNeighbors(object = tumor_sample, dims = 1:min.pc)     ### alternative: dims = doubletpc     
+     tumor_sample <- FindClusters(object = tumor_sample, resolution = 1)     ### alternative: resolution = doubletresolution or 0.1
+  
+     # pK identification (no ground-truth)
+     #sweep.list <- paramSweep(tumor_sample, PCs = 1:min.pc, num.cores = detectCores() - 1)
+     sweep.list <- paramSweep(tumor_sample, PCs = 1:min.pc, sct = FALSE)
+     sweep.stats <- summarizeSweep(sweep.list)
+     bcmvn <- find.pK(sweep.stats)
+
+
+
+     # Optimal pK is the max of the bomodality coefficent (BCmvn) distribution
+     bcmvn.max <- bcmvn[which.max(bcmvn$BCmetric),]
+     optimal.pk <- bcmvn.max$pK
+     optimal.pk <- as.numeric(levels(optimal.pk))[optimal.pk]
+  
+    ## Homotypic doublet proportion estimate
+    annotations <- tumor_sample@meta.data$seurat_clusters
+    homotypic.prop <- modelHomotypic(annotations) 
+    nExp.poi <- round(optimal.pk * nrow(tumor_sample@meta.data)) ## Assuming 7.5% doublet formation rate - tailor for your dataset
+    nExp.poi.adj <- round(nExp.poi * (1 - homotypic.prop))
+
+    # run DoubletFinder
+   tumor_sample <- doubletFinder(seu = tumor_sample, 
+                                   PCs = 1:min.pc, 
+                                   pK = optimal.pk,
+                                   nExp = nExp.poi.adj)
+  metadata_sample <- tumor_sample@meta.data
+  colnames(metadata_sample)[21] <- "doublet_finder"
+  tumor_sample@meta.data <- metadata_sample 
+  
+  # subset and save
+  tumor_singlets <- subset(tumor_sample, doublet_finder == "Singlet")
+  tumor_joined_split[[i]] <- tumor_singlets
+  remove(tumor_singlets)
+
+
+} #### end of i loop
+
+
+
+# converge mouse.split
+seurat_obj_study_singlets <- merge(x=tumor_joined_split[[1]], y=tumor_joined_split[2:length(tumor_joined_split)])
+
+table(seurat_obj_study_singlets$Sample_ID)
+
+#### plot singlets #####
+
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_singlets_scatter_basic_qc.png", width=8, height=10, res=200, units='in')
+FeatureScatter(
+    seurat_obj_study_singlets, 
+    feature1 = "nCount_RNA",
+    feature2="nFeature_RNA",
+    group.by="Sample_ID")
+dev.off()     
+#FeatureScatter(seurat_obj_study, feature1 = "nCount_RNA",feature2="percent.mt",group.by='SampleID')
+
+
+
+# plot distributions of QC metrics, grouped by SampleID
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_singlets_basic_qc.png", width=6, height=10, res=200, units='in')
+VlnPlot(
+    seurat_obj_study_singlets,
+    features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
+    group.by="Sample_ID",
+    pt.size=0,
+    ncol = 1
+    )
+dev.off()       
+
+
+# plot the number of cells in each sample post filtering
+df_cell_number <- as.data.frame(rev(table(seurat_obj_study_singlets$Sample_ID)))
+colnames(df_cell_number) <- c('Sample_ID', 'n_cells')
+p <- ggplot(df_cell_number, aes(y=n_cells, x=reorder(Sample_ID, -n_cells), fill=Sample_ID)) +
+    geom_bar(stat='identity') + 
+    scale_y_continuous(expand = c(0,0)) +
+    NoLegend() + RotatedAxis() +
+    ylab(expression(italic(N)[cells])) + xlab('Sample ID') +
+    ggtitle(paste('Total cells post-filtering:', sum(df_cell_number$n_cells))) +
+    theme(
+    panel.grid.minor=element_blank()
+    #panel.grid.major.y=linewidth(colour="lightgray", size=0.5),
+)
+
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_Singlets_basic_cells_per_sample_filtered.png",width=7, height=3, res=200, units='in')
+print(p)
+dev.off()
+
+
+
+saveRDS(seurat_obj_study_singlets , file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Synovial31_Jerby_seurat_object_Singlets.rds")
+seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_singlets)   ## join layers
 
 
 #####################################################
