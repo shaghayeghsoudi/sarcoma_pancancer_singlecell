@@ -931,19 +931,19 @@ SS_singlets_joined<-JoinLayers(seurat_obj_study_SS)   ## join layers
 
 
 
-###########################################
+###############################################
 #### find and remove doublets (Jerby 10X)######
-####################################
+###############################################
 
 ## NOTE: DoubletFinder should not be run on aggregated data and should be run on a per sample basis
 
-table(SS_singlets_joined$Sample_ID)ßß
+table(seurat_obj_study_SS10X_primary$Sample_ID)
 
 #doubletpercent = 0.075
 #doubletpc = seq(30)
 #doubletresolution = 1
 
-tumor_joined_split <- SplitObject(SS_singlets_joined, split.by = "Sample_ID") 
+tumor_joined_split <- SplitObject(seurat_obj_study_SS10X_primary, split.by = "Sample_ID") 
 
 
 # loop through samples to find doublets
@@ -1036,7 +1036,7 @@ table(seurat_obj_study_singlets$Sample_ID)
 
 #### plot singlets #####
 
-png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_singlets_scatter_basic_qc.png", width=8, height=10, res=200, units='in')
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby32_10X_Synovial_singlets_scatter_basic_qc.png", width=8, height=10, res=200, units='in')
 FeatureScatter(
     seurat_obj_study_singlets, 
     feature1 = "nCount_RNA",
@@ -1048,7 +1048,7 @@ dev.off()
 
 
 # plot distributions of QC metrics, grouped by SampleID
-png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_singlets_basic_qc.png", width=6, height=10, res=200, units='in')
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby32_10X_Synovial_singlets_basic_qc.png", width=6, height=10, res=200, units='in')
 VlnPlot(
     seurat_obj_study_singlets,
     features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
@@ -1073,18 +1073,135 @@ p <- ggplot(df_cell_number, aes(y=n_cells, x=reorder(Sample_ID, -n_cells), fill=
     #panel.grid.major.y=linewidth(colour="lightgray", size=0.5),
 )
 
-png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby31_Synovial_Singlets_basic_cells_per_sample_filtered.png",width=7, height=3, res=200, units='in')
+png("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/Jerby32_10X_Synovial_Singlets_basic_cells_per_sample_filtered.png",width=7, height=3, res=200, units='in')
 print(p)
 dev.off()
 
 
 
-saveRDS(seurat_obj_study_singlets , file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Synovial31_Jerby_seurat_object_Singlets.rds")
+saveRDS(seurat_obj_study_singlets , file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Synovial32_10X_Jerby_seurat_object_Singlets.rds")
 seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_singlets)   ## join layers
 
 
 #####################################################
 #####################################################
 
+### merge various objects
+
+ecotyper_singlet<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/ecotyper_primary_allsinglets_seurat_object.rds")
+ecotyper_singlet_joined<-JoinLayers(ecotyper_singlet)   ## join layers
+
+Jerby10X_singlet<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Synovial32_10X_Jerby_seurat_object_Singlets.rds")
+Jerby10X_singlet_joined<-JoinLayers(Jerby10X_singlet)
+
+
+aa<-merge(ecotyper_singlet_joined,Jerby10X_singlet_joined) %>% 
+    FindVariableFeatures(nfeatures = 3000) %>%
+    ScaleData() %>%
+    RunPCA(npcs = 50) %>%
+    RunUMAP(dims = 1:20)
+
+
+plot1 <- DimPlot(aa, group.by="Sample_ID")
+plot1 <- DimPlot(aa, group.by="Dataset")
+
+
+plot2 <- FeaturePlot(seurat, c("FOXG1","EMX1","DLX2","LHX9"), ncol=2, pt.size =
+   0.1)
+plot1 + plot2 + plot_layout(widths = c(1.5, 2))
+
+
+#######################################
+#######################################
 
 ### make consitent hg19 and hg38 genome assembly ###
+
+
+# Load hg19 and hg38 datasets
+hg19_data <- Read10X(data.dir = "path_to_hg19_data/")
+hg38_data <- Read10X(data.dir = "path_to_hg38_data/")
+
+# Create Seurat objects
+hg19 <- CreateSeuratObject(counts = hg19_data, project = "hg19")
+hg38 <- CreateSeuratObject(counts = hg38_data, project = "hg38")
+
+# Normalize each dataset
+hg19 <- NormalizeData(hg19) %>% FindVariableFeatures()
+hg38 <- NormalizeData(hg38) %>% FindVariableFeatures()
+
+
+# Harmonize gene names (ensure they match between datasets)
+# You can use biomaRt or custom mappings to convert gene IDs
+# Ensure that both datasets have the same set of genes after this step
+common_genes <- intersect(rownames(hg19), rownames(hg38))
+hg19 <- hg19[common_genes, ]
+hg38 <- hg38[common_genes, ]
+
+# Integration using Seurat's integration method
+anchors <- FindIntegrationAnchors(object.list = list(hg19, hg38))
+combined <- IntegrateData(anchorset = anchors)
+
+# Scale data and run PCA
+combined <- ScaleData(combined) %>% RunPCA()
+
+# Run clustering and UMAP for visualization
+combined <- FindNeighbors(combined, dims = 1:20) %>% FindClusters() %>% RunUMAP(dims = 1:20)
+
+
+# Visualize the integrated data
+DimPlot(combined, reduction = "umap", group.by = "orig.ident")
+
+
+
+##### other way ####
+library("dbplyr")
+library(biomaRt)
+
+# Select mart for hg19 and hg38
+hg19_mart <- useMart("ENSEMBL_MART_ENSEMBL", dataset = "hsapiens_gene_ensembl", host = "https://grch37.ensembl.org")
+hg38_mart <- useMart("ENSEMBL_MART_ENSEMBL", dataset = "hsapiens_gene_ensembl")
+
+
+
+
+# Get gene symbols or IDs from hg19 and map to hg38
+hg19_genes <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"), mart = hg19_mart)
+hg38_genes <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"), mart = hg38_mart)
+
+
+
+# Find common genes based on gene symbols or IDs
+common_genes <- intersect(hg19_genes$external_gene_name, hg38_genes$external_gene_name)
+
+library(Seurat)
+
+# Create Seurat objects for hg19 and hg38 datasets
+hg19 <- CreateSeuratObject(counts = hg19_data, project = "hg19")
+hg38 <- CreateSeuratObject(counts = hg38_data, project = "hg38")
+
+
+# Normalize and identify variable features for each dataset
+hg19 <- NormalizeData(hg19) %>% FindVariableFeatures()
+hg38 <- NormalizeData(hg38) %>% FindVariableFeatures()
+
+# Find integration anchors between hg19 and hg38 datasets
+anchors <- FindIntegrationAnchors(object.list = list(hg19, hg38), dims = 1:30)
+
+# Integrate the datasets
+combined <- IntegrateData(anchorset = anchors, dims = 1:30)
+
+
+
+# Scale and perform PCA
+combined <- ScaleData(combined) %>% RunPCA()
+
+# Perform UMAP for visualization
+combined <- RunUMAP(combined, dims = 1:30)
+
+# Plot UMAP colored by dataset origin
+DimPlot(combined, reduction = "umap", group.by = "orig.ident")
+
+
+library(harmony)
+combined <- RunHarmony(combined, group.by.vars = "orig.ident")
+combined <- RunUMAP(combined, reduction = "harmony", dims = 1:30)
