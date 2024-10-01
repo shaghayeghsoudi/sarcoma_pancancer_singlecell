@@ -1,86 +1,5 @@
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-# Functions
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-#' Read files for Seurat
-#'
-#' This function will read in the expression file and integrate
-#' the seurat object. In addition, it can optionally detect
-#' and reject doublet using the appropriate software.
-#' @param inputdir A path containing the cellranger output files or matrix files
-#' @param outputdir Output path of the merged RDS file
-#' @param type Data format type (cellranger output files or matrix files)
-#' @param mincells Include features detected in at least this many cells.
-#' @param deledoublet Whether to test and reject doublet
-#' @param doubletpercent Percentage of excluded doublet
-#' @param doubletpc Number of PC quadrants included
-#' @param doubletresolution resoluttion value for doublet
-#' @param wid width of picture
-#' @param hei height of picture
-#'
 
 
-#pkgs <- c(
-#    "Seurat", "SeuratWrappers", "ggplot2", "batchelor",
-#    "dplyr", "optparse", "reshape2", "data.table", "magrittr"
-#)
-
-#lapply(pkgs, function(x) require(package = x, character.only = TRUE, quietly = TRUE, warn.conflicts = FALSE)) #nolint
-
-
-
-rm(list = ls())
-
-## Step 1: Load and Create Seurat Objects for Each Dataset
-# Begin by loading each dataset into a Seurat object. Even if the datasets are aligned to different reference genomes, this initial step is the same.
-
-
-library(Seurat)
-library(stringr)
-library(Matrix)
-library(ggplot2)
-#library(DoubletFinder)
-
-
-# Step 1: Load data for sample mapped to hg38
-parent_dir <- ("~/Dropbox/cancer_reserach/sarcoma/single-cell_projects/sarcoma_pancancer/ecotyper")
-sample_paths <- list.dirs(parent_dir, recursive = FALSE)
-seurat_objects <- lapply(sample_paths, function(path) {
-  data <- Read10X(data.dir = path)
-  CreateSeuratObject(counts = data, project = basename(path))
-})
-
-
-names(seurat_objects) <- basename(sample_paths)
-
-
-# Load data for sample mapped to hg19
-parent_dir_wei <- ("~/Dropbox/cancer_reserach/sarcoma/single-cell_projects/sarcoma_pancancer/Wei-et-al-RD")
-sample_paths_wei <- list.dirs(parent_dir_wei, recursive = FALSE)
-
-seurat_objects_ <- lapply(sample_paths, function(path) {
-  data <- Read10X(data.dir = path)
-  CreateSeuratObject(counts = data, project = basename(path))
-})
-
-
-names(seurat_objects) <- basename(sample_paths)
-
-
-# Step 2: Harmonize Gene Names or IDs
-# Since the datasets are mapped to different reference genomes, their gene names or IDs might differ. Harmonizing these is crucial before integration.
-
-
-
-############################################
-############################################
-
-
-
-########################################
-########################################
-############# Ecotyper paper ###########
-########################################
-########################################
 rm(list = ls())
 
 ## Step 1: Load and Create Seurat Objects for Each Dataset
@@ -99,7 +18,7 @@ library(glmGamPoi)
 full_meta<-read.csv(file="~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/meta_for_testing.csv", header = TRUE, sep = ",")
 root<-("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/")
 
-data_dir <- paste(root,"ecotyper/ecotyper_primary_all/", sep = "")  ### Adjust -> all files should be in the same folder ###
+data_dir <- paste(root,"Zhou-et-al-2020-Osteosarcoma/Zhou_primary_all/", sep = "")  ### Adjust -> all files should be in the same folder ###
 files<-dir(data_dir)  ### all files are in the same folder (not seperated by patient)
 # Print folder names for debugging
 print(files)
@@ -228,24 +147,21 @@ print(p)
 dev.off()
 
 saveRDS(seurat_obj_study , file = paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/",basename(data_dir),"_seurat_object.rds",sep = ""))
-# sc_tumor<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/ecotyper_primary_all_seurat_object.rds")
+# sc_tumor<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Liu_primary_all_seurat_object.rds")
 
 ####################################
 #### find and remove doublets ######
 ####################################
 
 ## NOTE: DoubletFinder should not be run on aggregated data and should be run on a per sample basis
-
 table(sc_tumor$Sample_ID)
 
 ### join layers into ONE layer before doublet finder function
 sc_tumor_joined<-JoinLayers(sc_tumor)
-#qq<-JoinLayers(sc_tumor)
 
 #doubletpercent = 0.075
 #doubletpc = seq(30)
 #doubletresolution = 1
-
 sc_tumor_joined_split <- SplitObject(sc_tumor_joined, split.by = "Sample_ID") 
 
 
