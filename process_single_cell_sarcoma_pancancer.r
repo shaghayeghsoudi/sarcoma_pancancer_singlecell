@@ -15,10 +15,10 @@ library(glmGamPoi)
 #library(DoubletFinder)
 ### read 10X cell ranger output, create Seurat object, do filtering and save the object in RDS format
 
-full_meta<-read.csv(file="~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/meta_for_testing.csv", header = TRUE, sep = ",")
+full_meta<-read.csv(file="~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/metadata/sarcoma_pancancer_metadata_updated.csv", header = TRUE, sep = ",")
 root<-("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/")
 
-data_dir <- paste(root,"Zhou-et-al-2020-Osteosarcoma/Zhou_primary_all/", sep = "")  ### Adjust -> all files should be in the same folder ###
+data_dir <- paste(root,"ecotyper/ecotyper_all/", sep = "")  ### Adjust -> all files should be in the same folder ###
 files<-dir(data_dir)  ### all files are in the same folder (not seperated by patient)
 # Print folder names for debugging
 print(files)
