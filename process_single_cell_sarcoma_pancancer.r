@@ -37,14 +37,11 @@ seurat_list <- lapply(file_stems, function(file){
      mat <- readMM(paste0(data_dir,file,'_matrix.mtx.gz'))
      genes <- read.csv(file=paste0(data_dir,file,'_features.tsv.gz'), sep='\t', header=FALSE)
      #genes<-genes[!duplicated(genes$V2),]
-
      barcodes <- read.csv(file=paste0(data_dir,file,'_barcodes.tsv.gz'), sep='\t', header=FALSE)
-
-   
      colnames(mat) <- barcodes$V1
      rownames(mat) <- genes$V2
 
-    
+
     ### removed dulicated genes
     if(sum(duplicated(rownames(mat))) >0){   
 
@@ -106,25 +103,40 @@ seurat_list <- lapply(file_stems, function(file){
 ### merge all objects into one and do some plotting
 seurat_obj_study <- merge(x=seurat_list[[1]], y=seurat_list[2:length(seurat_list)])
 
-png(paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/",basename(data_dir),"scatter_basic_qc.png", sep = ""), width=8, height=10, res=200, units='in')
-FeatureScatter(
+
+# Define the folder path to save plots
+folder_path <- paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/",basename(data_dir), sep = "")
+
+# Create the folder
+if (!dir.exists(folder_path)) {  # Check if the folder already exists
+  dir.create(folder_path)
+  cat("Folder created at:", folder_path, "\n")
+} else {
+  cat("Folder already exists at:", folder_path, "\n")
+}
+
+
+png(paste(folder_path,"scatter_basic_qc.png", sep = "/"), width=8, height=10, res=200, units='in')
+plot_scatter<-FeatureScatter(
     seurat_obj_study, 
     feature1 = "nCount_RNA",
     feature2="nFeature_RNA",
     group.by="Sample_ID")
+print(plot_scatter)    
 dev.off()     
 #FeatureScatter(seurat_obj_study, feature1 = "nCount_RNA",feature2="percent.mt",group.by='SampleID')
 
 
 # plot distributions of QC metrics, grouped by SampleID
 png(paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/",basename(data_dir),"_basic_qc.png", sep = ""), width=6, height=10, res=200, units='in')
-VlnPlot(
+plot_feature<-VlnPlot(
     seurat_obj_study,
     features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
     group.by="Sample_ID",
     pt.size=0,
     ncol = 1
     )
+print(plot_feature)    
 dev.off()       
 
 
@@ -270,10 +282,10 @@ seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_singlets)   ## joi
 
 
 
-####################################
-####################################
-########## Lindy's paper ###########
-####################################
+
+########################################################################################
+########## Lindy's paper (Plate base Single-cell - processed by the authors) ###########
+#########################################################################################
 
 rm(list = ls())
 
