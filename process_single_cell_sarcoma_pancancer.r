@@ -12,6 +12,8 @@ library(Matrix)
 library(ggplot2)
 library(DoubletFinder)
 library(glmGamPoi)
+library(patchwork)
+
 #library(DoubletFinder)
 ### read 10X cell ranger output, create Seurat object, do filtering and save the object in RDS format
 
@@ -56,7 +58,7 @@ seurat_list <- lapply(file_stems, function(file){
     )
 
     ### add mt percentage 
-    cur_seurat[["percent.mt"]] <- PercentageFeatureSet(cur_seurat, pattern = "^MT-")
+    cur_seurat[["percent.mt"]] <- PercentageFeatureSet(cur_seurat, pattern = "^MT[-\\.]")
 
     ### add related information to the meta data
     full_meta_foc<-full_meta[full_meta$Patient == file,]
@@ -121,14 +123,16 @@ plot_scatter<-FeatureScatter(
     seurat_obj_study, 
     feature1 = "nCount_RNA",
     feature2="nFeature_RNA",
-    group.by="Sample_ID")
+    group.by="Sample_ID",
+    pt.size = 1,
+    raster=FALSE)
 print(plot_scatter)    
 dev.off()     
 #FeatureScatter(seurat_obj_study, feature1 = "nCount_RNA",feature2="percent.mt",group.by='SampleID')
 
 
 # plot distributions of QC metrics, grouped by SampleID
-png(paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/",basename(data_dir),"_basic_qc.png", sep = ""), width=6, height=10, res=200, units='in')
+png(paste(folder_path,"VlnPlot_basic_qc.png", sep = "/"), width=10, height=11, res=200, units='in')
 plot_feature<-VlnPlot(
     seurat_obj_study,
     features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
@@ -143,6 +147,7 @@ dev.off()
 # plot the number of cells in each sample post filtering
 df_cell_number <- as.data.frame(rev(table(seurat_obj_study$Sample_ID)))
 colnames(df_cell_number) <- c('Sample_ID', 'n_cells')
+png(paste(folder_path,"basic_cells_per_sample_filtered.png", sep = "/"),width=7, height=3, res=200, units='in')
 p <- ggplot(df_cell_number, aes(y=n_cells, x=reorder(Sample_ID, -n_cells), fill=Sample_ID)) +
     geom_bar(stat='identity') + 
     scale_y_continuous(expand = c(0,0)) +
@@ -153,13 +158,11 @@ p <- ggplot(df_cell_number, aes(y=n_cells, x=reorder(Sample_ID, -n_cells), fill=
     panel.grid.minor=element_blank()
     #panel.grid.major.y=linewidth(colour="lightgray", size=0.5),
 )
-
-png(paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/plots/",basename(data_dir),"basic_cells_per_sample_filtered.png", sep = ""),width=7, height=3, res=200, units='in')
 print(p)
 dev.off()
 
 saveRDS(seurat_obj_study , file = paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/",basename(data_dir),"_seurat_object.rds",sep = ""))
-# sc_tumor<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Liu_primary_all_seurat_object.rds")
+# sc_tumor<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/ecotyper_all_seurat_object.rds")
 
 ####################################
 #### find and remove doublets ######
@@ -184,8 +187,7 @@ for (i in 1:length(sc_tumor_joined_split)) {   ### loop through easch sample in 
   
      # Pre-process seurat object with standard seurat workflow
      tumor_sample <- NormalizeData(sc_tumor_joined_split[[i]],
-     normalization.method = "LogNormalize",   ### lognormalize is a simpler method
-     scale.factor = 10000
+     normalization.method = "LogNormalize"  ### lognormalize is a simpler method
      )
 
 
@@ -199,9 +201,10 @@ for (i in 1:length(sc_tumor_joined_split)) {   ### loop through easch sample in 
 
      tumor_sample <- FindVariableFeatures(tumor_sample,
      selection.method = "vst",
-     nfeatures = 2000)
+     nfeatures = 2000) 
      tumor_sample <- ScaleData(tumor_sample)
      tumor_sample <- RunPCA(tumor_sample)
+     ElbowPlot(tumor_sample)
 
 
      # Find significant PCs
@@ -218,17 +221,18 @@ for (i in 1:length(sc_tumor_joined_split)) {   ### loop through easch sample in 
 
 
      # finish pre-processing
-     tumor_sample <- RunUMAP(tumor_sample, dims = 1:min.pc)    ### alternative: dims = doubletpc
      tumor_sample <- FindNeighbors(object = tumor_sample, dims = 1:min.pc)     ### alternative: dims = doubletpc     
-     tumor_sample <- FindClusters(object = tumor_sample, resolution = 1)     ### alternative: resolution = doubletresolution or 0.1
-  
+     tumor_sample <- FindClusters(object = tumor_sample)     ### alternative: resolution = doubletresolution or 0.1
+     tumor_sample <- RunUMAP(tumor_sample, dims = 1:min.pc) ### alternative: dims = doubletpc
      # pK identification (no ground-truth)
      #sweep.list <- paramSweep(tumor_sample, PCs = 1:min.pc, num.cores = detectCores() - 1)
      sweep.list <- paramSweep(tumor_sample, PCs = 1:min.pc, sct = FALSE)
      sweep.stats <- summarizeSweep(sweep.list)
      bcmvn <- find.pK(sweep.stats)
 
-
+    ggplot(bcmvn, aes(pK, BCmetric, group = 1)) +
+    geom_point() +
+    geom_line()
 
      # Optimal pK is the max of the bomodality coefficent (BCmvn) distribution
      bcmvn.max <- bcmvn[which.max(bcmvn$BCmetric),]
@@ -242,17 +246,31 @@ for (i in 1:length(sc_tumor_joined_split)) {   ### loop through easch sample in 
     nExp.poi.adj <- round(nExp.poi * (1 - homotypic.prop))
 
     # run DoubletFinder
-   tumor_sample <- doubletFinder(seu = tumor_sample, 
+    tumor_sample <- doubletFinder(seu = tumor_sample, 
                                    PCs = 1:min.pc, 
                                    pK = optimal.pk,
                                    nExp = nExp.poi.adj)
-  metadata_sample <- tumor_sample@meta.data
-  colnames(metadata_sample)[21] <- "doublet_finder"
-  tumor_sample@meta.data <- metadata_sample 
+   metadata_sample <- tumor_sample@meta.data
+   colnames(metadata_sample)[21] <- "doublet_finder"
+   tumor_sample@meta.data <- metadata_sample 
   
+  ### plot doublets
+  plot_singlet_doublet<-DimPlot(tumor_sample, reduction = 'umap', group.by = "doublet_finder")
+  table(tumor_sample@meta.data$doublet_finder)
+
   # subset and save
   tumor_singlets <- subset(tumor_sample, doublet_finder == "Singlet")
   sc_tumor_joined_split[[i]] <- tumor_singlets
+  plot_doublet<-DimPlot(sc_tumor_joined_split[[i]], reduction = 'umap', group.by = "doublet_finder")
+  
+  ### plot 
+  sample<-unique(sc_tumor_joined_split[[i]]@meta.data$Patient_ID)
+  png(paste(folder_path,"/","doublets_",sample,".png", sep = ""),width=9, height=5, res=200, units='in')
+  plot_both<-plot_singlet_doublet + plot_doublet
+  print(plot_both)
+  dev.off()
+  
+
   remove(tumor_singlets)
 
 
@@ -260,26 +278,55 @@ for (i in 1:length(sc_tumor_joined_split)) {   ### loop through easch sample in 
 
 
 
-# converge mouse.split
+# merge samples and save doublet-removed object
 seurat_obj_study_singlets <- merge(x=sc_tumor_joined_split[[1]], y=sc_tumor_joined_split[2:length(sc_tumor_joined_split)])
-
 saveRDS(seurat_obj_study_singlets , file = paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/",basename(data_dir),"singlets_seurat_object.rds",sep = ""))
+
 seurat_obj_study_singlets_joined<-JoinLayers(seurat_obj_study_singlets)   ## join layers
 
+test_batch<-FindVariableFeatures(seurat_obj_study_singlets_joined,nfeatures = 3000) %>%
+     ScaleData() %>%
+     RunPCA(npcs = 50) %>%
+     RunUMAP(dims = 1:20)
 
 
-## Run DoubletFinder with varying classification stringencies ----------------------------------------------------------------
-#seu_kidney <- doubletFinder(seu_kidney, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
-#seu_kidney <- doubletFinder(seu_kidney, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = "pANN_0.25_0.09_913", sct = FALSE)
+## dimplot before harmonizing to see if there is batch effect
+png(paste(folder_path,"/","DimPlot_before_Harmony_",basename(data_dir),".png", sep = ""),width=18, height=14, res=200, units='in')
+plot1_batch <- DimPlot(test_batch, group.by="Sample_ID")
+plot2_batch <- FeaturePlot(test_batch, c("CD68","COL1A1","FLT1","NKG7","CCL4","SAT1","FN1","IGFBP3"), ncol=2, pt.size =0.1)
+batch_plots<-plot1_batch + plot2_batch
+print(batch_plots)
+dev.off()
 
 
+###############################################
+##### harmonize data to fix batch effect ######
+###############################################
 
-# To load the saved Seurat object later, use:
-# loaded_seurat <- readRDS("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/ecotyper_primary_seurat_object.rds")
+data_harmony <- RunHarmony(test_batch, group.by.vars = "Sample_ID")
 
+# Check Harmony embeddings
+head(Embeddings(data_harmony, "harmony"))
 
-### END ####
+data_harmony_seurat <- RunUMAP(data_harmony, reduction = "harmony", dims = 1:20) %>% 
+     FindNeighbors(reduction = "harmony", dims = 1:20) %>%
+     FindClusters(resolution = c(0.1,0.3,0.5,0.7,0.9))
 
+View(aa@meta.data)
+plot1_harmony_resolution<-DimPlot(data_harmony_seurat, group.by = "RNA_snn_res.0.5", label = TRUE)
+##check how data looks like after harmonization
+plot1_harmony <- DimPlot(data_harmony_seurat, group.by="Sample_ID",label = TRUE) 
+plot2_harmony <- FeaturePlot(data_harmony_seurat, c("CD68","COL1A1","FLT1","NKG7","CCL4","SAT1","FN1","IGFBP3"), ncol=2, pt.size =0.1)
+
+png(paste(folder_path,"/","DimPlot_afterHarmony_Resolution0.5_Harmony_",basename(data_dir),".png", sep = ""),width=18, height=18, res=200, units='in')
+plot_all_harmony<-plot1_harmony_resolution + plot1_harmony + plot2_harmony
+print(plot_all_harmony)
+dev.off()
+
+Idents(data_harmony_seurat) <- "RNA_snn_res.0.5"
+## I may want to save the harmonized object for each data set
+saveRDS(data_harmony_seurat, file = paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/",basename(data_dir),"harmonized_singlets_seurat_object.rds",sep = ""))
+#hg38_data_harmony_seurat<-readRDS("~/Desktop/Ecotyper_hg38_data_harmony_seurat.rds")
 
 
 
