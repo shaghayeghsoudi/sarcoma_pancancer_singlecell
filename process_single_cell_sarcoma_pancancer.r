@@ -11,8 +11,9 @@ library(stringr)
 library(Matrix)
 library(ggplot2)
 library(DoubletFinder)
-library(glmGamPoi)
+#library(glmGamPoi)
 library(patchwork)
+library(harmony)
 
 #library(DoubletFinder)
 ### read 10X cell ranger output, create Seurat object, do filtering and save the object in RDS format
@@ -20,7 +21,7 @@ library(patchwork)
 full_meta<-read.csv(file="~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/metadata/sarcoma_pancancer_metadata_updated.csv", header = TRUE, sep = ",")
 root<-("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/")
 
-data_dir <- paste(root,"ecotyper/ecotyper_all/", sep = "")  ### Adjust -> all files should be in the same folder ###
+data_dir <- paste(root,"Kalbasi_baseline/Kalbasi_primary_all/", sep = "")  ### Adjust -> all files should be in the same folder ###
 files<-dir(data_dir)  ### all files are in the same folder (not seperated by patient)
 # Print folder names for debugging
 print(files)
@@ -162,7 +163,7 @@ print(p)
 dev.off()
 
 saveRDS(seurat_obj_study , file = paste("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/",basename(data_dir),"_seurat_object.rds",sep = ""))
-# sc_tumor<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/ecotyper_all_seurat_object.rds")
+# sc_tumor<-readRDS(file = "~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_pancancer/objects/Kalbasi_primary_all_seurat_object.rds")
 
 ####################################
 #### find and remove doublets ######
@@ -319,7 +320,7 @@ plot1_harmony <- DimPlot(data_harmony_seurat, group.by="Sample_ID",label = TRUE)
 plot2_harmony <- FeaturePlot(data_harmony_seurat, c("CD68","COL1A1","FLT1","NKG7","CCL4","SAT1","FN1","IGFBP3"), ncol=2, pt.size =0.1)
 
 png(paste(folder_path,"/","DimPlot_afterHarmony_Resolution0.5_Harmony_",basename(data_dir),".png", sep = ""),width=18, height=18, res=200, units='in')
-plot_all_harmony<-plot1_harmony_resolution + plot1_harmony + plot2_harmony
+plot_all_harmony<-(plot1_harmony_resolution / plot1_harmony | plot2_harmony) 
 print(plot_all_harmony)
 dev.off()
 
