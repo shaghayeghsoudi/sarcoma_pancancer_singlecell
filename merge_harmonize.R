@@ -136,8 +136,9 @@ identical(
 
 
 # Immune cells (diploid reference candidates)
-pdf("/home/shsoudi/sarcoma_pancancer_single-cell/sarcoma_before_after_radiation/test_scripts/feature_plots_resolution0.5_refence_high_confidence_immunecells.pdf", width = 22, height = 22)
-feature_immune<-FeaturePlot(merged_obj, features = c("PTPRC","CD3D", "CD79A", "CD68","NKG7","CD14" ),raster=FALSE)  # T cells, B cells, Macrophages
+pdf("~/Dropbox/cancer_reserach/sarcoma/sarcoma_analysis/single_cell/sarcoma_before_after_radiation/plots/all_datasets_harmonized/feature_plots_resolution0.5_refence_high_confidence_immunecells_updated.pdf", width = 22, height = 22)
+#pdf("/home/shsoudi/sarcoma_pancancer_single-cell/sarcoma_before_after_radiation/test_scripts/feature_plots_resolution0.5_refence_high_confidence_immunecells_updated.pdf", width = 22, height = 22)
+feature_immune<-FeaturePlot(merged_obj, features = c("PTPRC", "CD3D", "CD3E", "CD8A", "NKG7", "CD79A" ),raster=FALSE)  # T cells, B cells, Macrophages
 print(feature_immune)
 dev.off()
 
@@ -153,7 +154,7 @@ FeaturePlot(merged_obj, features = c("MDM2", "CDK4", "HMGA2"))  # Hallmark lipos
 
 ## option A #################################
 ## Option A: Immune Cells (Best Default) ####
-immune_cells <- subset(merged_obj, idents = c(10,7,3,14,4))  # Clusters expressing CD3D/CD79A/CD68 
+immune_cells <- subset(merged_obj, idents = c(3,5,7,10))  # Clusters expressing CD3D/CD79A/CD68 
 #immune_cells <- subset(merged_obj, idents = c(1,3,5,11))  # only ecotype for testing Clusters expressing CD3D/CD79A/CD68 
 
 
@@ -225,8 +226,8 @@ infercnv::run(
   BayesMaxPNormal = 0.1,   ## You get too many CNV calls (try 0.2 or 0.3) or You’re missing known CNV regions (try 0.05 or 0.01)
   analysis_mode = "subclusters",
   tumor_subcluster_partition_method = "leiden",
-  output_format = "hdf5",
-  num_threads = 8,
+  #output_format = "hdf5",   ## did not support
+  num_threads = 20,
   out_dir = "/home/shsoudi/sarcoma_pancancer_single-cell/sarcoma_before_after_radiation/test_scripts/inferCNV_outputs" ,
   
   # ---- Phylogeny-specific additions ----
