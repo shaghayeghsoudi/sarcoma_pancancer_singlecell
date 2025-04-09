@@ -72,14 +72,12 @@ for (sample in unique(merged_obj$Sample_ID)) {
   counts_matrix <- as.matrix(counts_matrix)
   }
    
-# 3. VALIDATE MATRIX
-stopifnot(
-  is.matrix(counts_matrix),          # Must be TRUE now
-  !inherits(counts_matrix, "dgCMatrix"), 
-  all(is.finite(counts_matrix))     # No NA/NaN/Inf
-)
-
-
+  # 3. VALIDATE MATRIX
+  stopifnot(
+    is.matrix(counts_matrix),          # Must be TRUE now
+    !inherits(counts_matrix, "dgCMatrix"), 
+    all(is.finite(counts_matrix))     # No NA/NaN/Inf
+  )
 
   
   # Run inferCNV per sample
@@ -95,40 +93,176 @@ stopifnot(
   
   # Run inferCNV
   infercnv::run(
-    infercnv_obj = infercnv_obj,
-    cutoff = 0.1,
-    cluster_by_groups = FALSE,
-    k_obs_groups = 3,
-    denoise = TRUE,
-    HMM = TRUE,
-    BayesMaxPNormal = 0.1,
-    analysis_mode = "subclusters",
-    tumor_subcluster_partition_method = "leiden",
-    output_format = "hdf5",
-    num_threads = 8,
-    out_dir = paste0(out_dir,"infercnv_output_", sample,sep = ""),
-    
-    # ---- Phylogeny-specific additions ----
-    plot_steps = TRUE,
-    resume_mode = FALSE,
-    no_plot = FALSE,
-    png_res = 300,
-    plot_tree = TRUE,                   # Generates Newick-format tree
-    plot_tree_scale = 0.5,              # Adjust branch length scaling
-    tree_method = "NJ",                 # Neighbor-joining (default)
-    dynamic_resize = 0.8, 
+  infercnv_obj = infercnv_obj,      
+  cutoff = 1,                            # Keep this for sensitivity
+  cluster_by_groups = FALSE,               # Critical for subclustering
+  k_obs_groups = 5,                        # *** Adjust based on expected subclones,If k_obs_groups = 3 gives too coarse of a split, try k_obs_groups = 4 or 5
+  denoise = TRUE,                          # Reduces noise
+  HMM = TRUE,                              # Essential for CNV calls
+  BayesMaxPNormal = 0.2,                   # You get too many CNV calls (try 0.2 or 0.3) or You’re missing known CNV regions (try 0.05 or 0.01)
+  analysis_mode = "subclusters",           # Enables subclone detection
+  tumor_subcluster_partition_method = "leiden",
+  ## tumor_subcluster_partition_method = "random_trees",
+  ## tumor_subcluster_partition_method = "kmeans"   # Then make sure this line stays:k_obs_groups = 3  # Try 3–6 depending on desired resolution
+  ### output_format = "hdf5", does not support
+  num_threads = 20,
+  out_dir = paste0(out_dir, "infercnv_output_", sample),
 
-     # ---- Subclone refinement ----
-    #min_cells_per_subcluster  = 10,          # Avoid tiny subclones
-    max_centered_threshold = 3,        
-    reassignCNVs = TRUE,
-    
-    # ---- HMM tuning ----
-    HMM_type = "i6",                        # More CNV states (default: i3)
-    HMM_report_by = "subcluster"      
-  )
+  # Plotting and output
+  ## write_phylo=T
+  plot_steps = TRUE,
+  resume_mode = FALSE,
+  no_plot = FALSE,
+  png_res = 300,
+  #plot_tree = TRUE,           # did not support        # Generates Newick-format tree
+  #plot_tree_scale = 0.5,      # did not support       # Adjust branch length scaling
+  # tree_method = "NJ",        # did not support        # Neighbor-joining (default)
+  #dynamic_resize = 0.8, 
+
+  # Subclone refinement (only supported part)
+  max_centered_threshold = 3,
+  reassignCNVs = TRUE,
+
+  # HMM tuning
+  HMM_type = "i6",
+  HMM_report_by = "subcluster"
+)
 }
 
 
+########################
+########## END #########
+########################
+
+### suggested by UPylogplot 
+#infercnv_obj = infercnv::run(infercnv_obj,
+#  cutoff=1,out_dir="output_dir",
+#  cluster_by_groups=FALSE,
+#  plot_steps=T,
+#  scale_data=T,
+#  denoise=T,
+#  noise_filter=0.12,
+#  analysis_mode='subclusters',
+#  HMM_type='i6')
+
+
+##### NEXT STEPS ######
+## Link the CNV profile to gene expression in Seurat
+#### Extract subcluster labels and map to Seurat
+#subclusters <- read.table("infercnv_output/infercnv_subclusters.observation_groupings.txt")
+#colnames(subclusters) <- c("cell", "subclone")
+
+### Add to Seurat metadata
+#seurat_obj$cnv_subclone <- subclusters$subclone[match(Cells(seurat_obj), subclusters$cell)]
+
+### Now you can visualize subclones in UMAP:
+#DimPlot(seurat_obj, group.by = "cnv_subclone", label = TRUE)
+
+## Compute CNV burden per cell
+#cnv_matrix <- infercnv_obj@expr.data
+#cnv_score <- apply(cnv_matrix, 2, function(x) mean(abs(x - 1)))
+#seurat_obj$cnv_score <- cnv_score
+#FeaturePlot(seurat_obj, "cnv_score")
+
+## 3. Identify sample- or clone-specific CNV patterns
+#Check which clones are enriched in:
+
+#Specific patient samples
+#Diagnosis vs relapse
+#Spatial zones, etc.
+
+########################################################
+############## Creating phylogentics trees #############
+
+# Step 1: Extract CNV profiles per subclone (use final infercnv_obj)
+
+# Load inferCNV final object
+load("infercnv_output/run.final.infercnv_obj")
+
+# Expression matrix of inferred CNVs
+cnv_matrix <- infercnv_obj@expr.data  # genes x cells
+
+# Read subcluster labels
+subclusters <- read.table("infercnv_output/infercnv_subclusters.observation_groupings.txt")
+colnames(subclusters) <- c("cell", "subclone")
+
+# Average CNV profile per subclone
+library(Matrix)
+library(dplyr)
+
+subclone_profiles <- do.call(cbind, lapply(unique(subclusters$subclone), function(clone) {
+  cells <- subclusters$cell[subclusters$subclone == clone]
+  if (length(cells) > 1) {
+    rowMeans(cnv_matrix[, cells, drop = FALSE])
+  } else {
+    cnv_matrix[, cells]
+  }
+}))
+colnames(subclone_profiles) <- unique(subclusters$subclone)
+
+
+# Step 2: Compute pairwise distances and build a tree
+library(ape)
+
+# Compute distance matrix between subclones
+dist_mat <- dist(t(subclone_profiles))  # Transpose: subclones as rows
+
+# Build phylogenetic tree (Neighbor-Joining)
+tree <- nj(dist_mat)
+
+# Plot
+plot(tree, main = "Phylogenetic Tree of CNV Subclones")
+
+#Step 3: Annotate the tree (optional but powerful)
+
+library(ggtree)
+
+# Create a data.frame for annotations
+tree_anno <- data.frame(
+  subclone = tree$tip.label,
+  color = "black"  # or assign based on sample, timepoint, etc.
+)
+
+# Plot with ggtree
+p <- ggtree(tree) %<+% tree_anno + 
+  geom_tiplab(aes(color = color), size = 4) +
+  theme_tree2()
+
+print(p)
+##########################
+# Run inferCNV
+#  infercnv::run(
+#    infercnv_obj = infercnv_obj,
+#    cutoff = 0.1,
+#    cluster_by_groups = FALSE,
+#    k_obs_groups = 3,
+#    denoise = TRUE,
+#    HMM = TRUE,
+#    BayesMaxPNormal = 0.1,
+#    analysis_mode = "subclusters",
+#    tumor_subcluster_partition_method = "leiden",
+#    output_format = "hdf5",
+#    num_threads = 8,
+#    out_dir = paste0(out_dir,"infercnv_output_", sample,sep = ""),
+#    
+#    # ---- Phylogeny-specific additions ----
+#    plot_steps = TRUE,
+#    resume_mode = FALSE,
+#    no_plot = FALSE,
+#    png_res = 300,
+#    plot_tree = TRUE,                   # Generates Newick-format tree
+#    plot_tree_scale = 0.5,              # Adjust branch length scaling
+#    tree_method = "NJ",                 # Neighbor-joining (default)
+#    dynamic_resize = 0.8, 
+#
+#     # ---- Subclone refinement ----
+#    #min_cells_per_subcluster  = 10,          # Avoid tiny subclones
+#    max_centered_threshold = 3,        
+#    reassignCNVs = TRUE,
+#    
+#    # ---- HMM tuning ----
+#    HMM_type = "i6",                        # More CNV states (default: i3)
+#    HMM_report_by = "subcluster"      
+#  )
 
 
